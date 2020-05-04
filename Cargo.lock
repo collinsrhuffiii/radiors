@@ -11,6 +11,11 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "cache_line_size"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "cassowary"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -141,6 +146,7 @@ dependencies = [
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "rtlsdr_mt 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustfft 3.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "spsc-bip-buffer 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "termion 1.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "tui 0.8.0 (git+https://github.com/fdehau/tui-rs.git)",
 ]
@@ -226,6 +232,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "spsc-bip-buffer"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "cache_line_size 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "strength_reduce"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -278,6 +292,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [metadata]
 "checksum autocfg 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
 "checksum bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
+"checksum cache_line_size 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "87ccbba4460cca3070e466e87ed2b1a50206d6a09dd2e2249da23c434a3e6535"
 "checksum cassowary 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "df8670b8c7b9dae1793364eafadf7239c40d669904660c5960d74cfd80b46a53"
 "checksum cfg-if 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)" = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
 "checksum either 1.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "bb1f6b1ce1c140482ea30ddd3335fc0024ac7ee112895426e0a629a6c20adfe3"
@@ -303,6 +318,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum rtlsdr_mt 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "62eb4b4b0366801a8d5c3ac62d8af539b8033c7dfa8d72384fe5afa9285e0034"
 "checksum rtlsdr_sys 1.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "5b10767c93eb67d309e4e7530d5eb1e3ce2427fd48544e6488b03fb4ec255a67"
 "checksum rustfft 3.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "77008ed59a8923c8b4ac2e5eaa6d28fbe893d3b9515098a4a5fc7767d6430fe5"
+"checksum spsc-bip-buffer 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "128935512e38b410d74c8cb6750b1407953b35fed89d29fe26fbfa1893799d3f"
 "checksum strength_reduce 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "a3ff2f71c82567c565ba4b3009a9350a96a7269eaa4001ebedae926230bc2254"
 "checksum termion 1.5.5 (registry+https://github.com/rust-lang/crates.io-index)" = "c22cec9d8978d906be5ac94bceb5a010d885c626c4c8855721a4dbd20e3ac905"
 "checksum transpose 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "643e21580bb0627c7bb09e5cedbb42c8705b19d012de593ed6b0309270b3cd1e"

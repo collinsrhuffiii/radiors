@@ -2,13 +2,13 @@ extern crate num;
 use rustfft::num_complex::Complex;
 use rustfft::num_traits::Zero;
 use rustfft::FFTplanner;
-use std::error::Error;
+use std::mem;
 use std::sync::Arc;
 
 extern crate rtlsdr_mt;
-use std::sync::mpsc;
+use spsc_bip_buffer::{BipBufferReader, BipBufferWriter};
 
-const DEFAULT_N_CHUNKS: u32 = 4;
+pub const DEFAULT_N_BUFFERS: u32 = 4;
 pub const DEFAULT_N_SAMPLES: u32 = 32768;
 pub const DEFAULT_CENTER_FREQUENCY: u32 = 100_259_009;
 pub const DEFAULT_BANDWIDTH: u32 = 200_000;
@@ -28,126 +28,51 @@ pub fn set_controller_defaults(controller: &mut Controller) {
 
 type IQSamples = Vec<Complex<f32>>;
 
-pub struct SdrReader {
-    n_chunks: u32,
-    n_samples: u32,
-    reader: rtlsdr_mt::Reader,
-    output_queue: mpsc::Sender<Vec<u8>>,
-}
-
-#[derive(Debug)]
-pub struct WorkerStats {
-    count_in: u64,
-    count_out: u64,
-}
-
-impl SdrReader {
-    pub fn new(reader: rtlsdr_mt::Reader, output_queue: mpsc::Sender<Vec<u8>>) -> SdrReader {
-        SdrReader {
-            n_chunks: DEFAULT_N_CHUNKS,
-            n_samples: DEFAULT_N_SAMPLES,
-            reader,
-            output_queue,
-        }
-    }
-
-    pub fn read_samples_loop(&mut self) -> WorkerStats {
-        let mut stats = WorkerStats {
-            count_in: 0,
-            count_out: 0,
-        };
-        let output_queue = self.output_queue.clone();
-        self.reader
-            .read_async(self.n_chunks, self.n_samples, |bytes| {
-                stats.count_in += 1;
-                let v = Vec::from(bytes.clone());
-                match transport_samples(v, &output_queue) {
-                    Ok(_) => stats.count_out += 1,
-                    Err(err) => {
-                        eprintln!("Error sending in sdr callback {:?}", err);
-                        eprintln!(
-                            "Read Sdr samples in = {}, out = {}",
-                            stats.count_in, stats.count_out
-                        );
-                    }
-                };
-            })
-            .unwrap();
-        stats
-    }
-}
-
-fn transport_samples(
-    samples: Vec<u8>,
-    queue: &mpsc::Sender<Vec<u8>>,
-) -> Result<(), std::sync::mpsc::SendError<Vec<u8>>> {
-    queue.send(samples)
+pub fn read_samples(
+    sdr_reader: &mut rtlsdr_mt::Reader,
+    buf_writer: &mut BipBufferWriter,
+    n_buffers: u32,
+    buf_size: u32,
+) -> usize {
+    let mut count = 0;
+    let _ = sdr_reader.read_async(n_buffers, buf_size, |buf| {
+        count += buf.len();
+        let mut reservation = buf_writer.spin_reserve(buf_size as usize);
+        reservation.copy_from_slice(buf);
+        reservation.send();
+    });
+    mem::forget(sdr_reader);
+    count
 }
 
 pub struct FFTWorker {
     fft: Arc<dyn rustfft::FFT<f32>>,
-    input_queue: mpsc::Receiver<Vec<u8>>,
-    output_queue: mpsc::Sender<Vec<(f64, f64)>>,
+    input_queue: BipBufferReader,
 }
 
 impl FFTWorker {
-    pub fn new(
-        input_queue: mpsc::Receiver<Vec<u8>>,
-        output_queue: mpsc::Sender<Vec<(f64, f64)>>,
-    ) -> Self {
+    pub fn new(input_queue: BipBufferReader) -> Self {
         let mut planner = FFTplanner::new(false);
         let fft = planner.plan_fft((DEFAULT_N_SAMPLES / 2) as usize);
-        FFTWorker {
-            fft,
-            input_queue,
-            output_queue,
-        }
+        FFTWorker { fft, input_queue }
     }
 
-    pub fn compute_fft_loop(&mut self) -> WorkerStats {
-        let mut stats = WorkerStats {
-            count_in: 0,
-            count_out: 0,
-        };
-        loop {
-            let samples = match self.input_queue.try_recv() {
-                Ok(samples) => {
-                    stats.count_in += 1;
-                    samples
-                }
-                Err(err) => {
-                    eprintln!("Error recv in fft_thread {:?}", err);
-                    eprintln!(
-                        "FFT Worker in_count = {}, out_count = {}",
-                        stats.count_in, stats.count_out
-                    );
-                    return stats;
-                }
-            };
+    pub fn compute_fft(&mut self) -> Vec<(f64, f64)> {
+        while self.input_queue.valid().len() < DEFAULT_N_SAMPLES as usize {}
+        let mut samples = &self.input_queue.valid()[..DEFAULT_N_SAMPLES as usize];
 
-            let mut iq_samples = complex_from_rtlsdr(&samples);
+        let mut iq_samples = complex_from_rtlsdr(&samples);
 
-            let mut output: Vec<Complex<f32>> = vec![Complex::zero(); iq_samples.len()];
-            self.fft.process(&mut iq_samples, &mut output);
+        let mut output: Vec<Complex<f32>> = vec![Complex::zero(); iq_samples.len()];
+        self.fft.process(&mut iq_samples, &mut output);
 
-            let output = output
-                .iter()
-                .enumerate()
-                .map(|(i, c)| (i as f64, to_db(c, iq_samples.len() as f64)))
-                .collect();
+        let output = output
+            .into_iter()
+            .enumerate()
+            .map(|(i, c)| (i as f64, to_db(&c, iq_samples.len() as f64)))
+            .collect();
 
-            match self.output_queue.send(output) {
-                Ok(_) => stats.count_out += 1,
-                Err(err) => {
-                    eprintln!("Error sending in fft_thread {:?}", err);
-                    eprintln!(
-                        "FFT Worker in_count = {}, out_count = {}",
-                        stats.count_in, stats.count_out
-                    );
-                    return stats;
-                }
-            };
-        }
+        output
     }
 }
 
@@ -178,17 +103,4 @@ fn convert_to_complex(iq_samples: &[f32]) -> Vec<Complex<f32>> {
 fn complex_from_rtlsdr(buf: &[u8]) -> IQSamples {
     let f = convert_to_floats(buf);
     convert_to_complex(&f)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_convert_simple() {
-        let bytes = vec![0x1, 0x2, 0x3, 0x4];
-        let floats = convert_to_floats(&bytes);
-        let complex = convert_to_complex(&floats);
-        println!("{:?}", complex);
-    }
 }

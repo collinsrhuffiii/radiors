@@ -15,12 +15,13 @@ use std::sync::mpsc;
 use util::event::Event;
 
 use super::sdr::set_controller_defaults;
+use super::sdr::FFTWorker;
 use super::sdr::RTLSDR_MAX_BANDWIDTH;
 use rtlsdr_mt::Controller;
 
 pub struct FFTApp {
     pub controller: Controller,
-    fft_output_queue: mpsc::Receiver<Vec<(f64, f64)>>,
+    fft_worker: FFTWorker,
     data: Vec<(f64, f64)>,
     x_min: f64,
     x_max: f64,
@@ -30,10 +31,10 @@ pub struct FFTApp {
 }
 
 impl FFTApp {
-    pub fn new(fft_output_queue: mpsc::Receiver<Vec<(f64, f64)>>, controller: Controller) -> Self {
+    pub fn new(fft_worker: FFTWorker, controller: Controller) -> Self {
         let mut app = FFTApp {
             controller,
-            fft_output_queue,
+            fft_worker,
             data: vec![],
             x_min: 0.0,
             x_max: 0.0,
@@ -47,10 +48,7 @@ impl FFTApp {
     }
 
     fn update(&mut self) {
-        while let Ok(data) = self.fft_output_queue.try_recv() {
-            self.in_count += 1;
-            self.data = data;
-        }
+        self.data = self.fft_worker.compute_fft();
         self.y_min = self.data.iter().map(|(_, c)| *c).fold(0. / 0., f64::min);
         self.y_max = self.data.iter().map(|(_, c)| *c).fold(0. / 0., f64::max);
         self.x_min = self.controller.center_freq() as f64;
@@ -199,7 +197,6 @@ pub fn start_ui(fft_app: &mut FFTApp) -> Result<(), Box<dyn Error>> {
                         events.disable_exit_key();
                     }
                     Key::Char('q') => {
-                        eprintln!("FFT UI in_count = {}", fft_app.in_count);
                         return Ok(());
                     }
                     _ => {}
