@@ -7,7 +7,7 @@ use spsc_bip_buffer::bip_buffer_with_len;
 
 fn main() {
     let (sdr_controller, mut sdr_reader) = rtlsdr_mt::open(0).unwrap();
-    let buf_len = sdr::DEFAULT_N_BUFFERS * sdr::DEFAULT_N_SAMPLES;
+    let buf_len = sdr::DEFAULT_N_SAMPLES * 2;
     let (mut samp_buf_writer, samp_buf_reader) = bip_buffer_with_len(buf_len as usize);
 
     let fft_worker = sdr::FFTWorker::new(samp_buf_reader);

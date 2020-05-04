@@ -8,7 +8,7 @@ use std::sync::Arc;
 extern crate rtlsdr_mt;
 use spsc_bip_buffer::{BipBufferReader, BipBufferWriter};
 
-pub const DEFAULT_N_BUFFERS: u32 = 4;
+pub const DEFAULT_N_BUFFERS: u32 = 16;
 pub const DEFAULT_N_SAMPLES: u32 = 32768;
 pub const DEFAULT_CENTER_FREQUENCY: u32 = 100_259_009;
 pub const DEFAULT_BANDWIDTH: u32 = 200_000;
@@ -36,10 +36,17 @@ pub fn read_samples(
 ) -> usize {
     let mut count = 0;
     let _ = sdr_reader.read_async(n_buffers, buf_size, |buf| {
-        count += buf.len();
-        let mut reservation = buf_writer.spin_reserve(buf_size as usize);
-        reservation.copy_from_slice(buf);
-        reservation.send();
+        match buf_writer.reserve(buf.len()) {
+            Some(mut reservation) => {
+                count += buf.len();
+                eprintln!("read count = {}", count);
+                reservation.copy_from_slice(buf);
+                reservation.send();
+            }
+            None => {
+                eprintln!("reader no room");
+            }
+        }
     });
     mem::forget(sdr_reader);
     count
@@ -48,29 +55,38 @@ pub fn read_samples(
 pub struct FFTWorker {
     fft: Arc<dyn rustfft::FFT<f32>>,
     input_queue: BipBufferReader,
+    count: usize,
 }
 
 impl FFTWorker {
     pub fn new(input_queue: BipBufferReader) -> Self {
         let mut planner = FFTplanner::new(false);
         let fft = planner.plan_fft((DEFAULT_N_SAMPLES / 2) as usize);
-        FFTWorker { fft, input_queue }
+        FFTWorker {
+            fft,
+            input_queue,
+            count: 0,
+        }
     }
 
     pub fn compute_fft(&mut self) -> Vec<(f64, f64)> {
         while self.input_queue.valid().len() < DEFAULT_N_SAMPLES as usize {}
-        let mut samples = &self.input_queue.valid()[..DEFAULT_N_SAMPLES as usize];
+        let samples = &self.input_queue.valid()[..DEFAULT_N_SAMPLES as usize];
 
         let mut iq_samples = complex_from_rtlsdr(&samples);
 
         let mut output: Vec<Complex<f32>> = vec![Complex::zero(); iq_samples.len()];
         self.fft.process(&mut iq_samples, &mut output);
 
-        let output = output
+        let output: Vec<(f64, f64)> = output
             .into_iter()
             .enumerate()
             .map(|(i, c)| (i as f64, to_db(&c, iq_samples.len() as f64)))
             .collect();
+
+        self.count += output.len();
+        eprintln!("fft count  = {}", 2 * self.count);
+        self.input_queue.consume(DEFAULT_N_SAMPLES as usize);
 
         output
     }
